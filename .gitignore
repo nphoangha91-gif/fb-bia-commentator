@@ -1,0 +1,15 @@
+# Credentials & Secrets (Stored in GitHub Secrets)
+fb_cookies.json
+env.txt
+*.env
+.env*
+
+# Models & Caches
+models/
+__pycache__/
+.DS_Store
+
+# Temporary outputs & logs
+*.png
+inspected_top_20_posts.json
+diamond_evaluation_progress.json

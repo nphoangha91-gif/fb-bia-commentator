@@ -1,0 +1,109 @@
+name: Facebook Contextual Auto Commenter Cron
+
+on:
+  schedule:
+    # Chạy 16 ca mỗi ngày trải đều mỗi tiếng (Giờ VN: 7h50, 8h50, 9h50, 10h50, 11h50, 12h50, 13h50, 14h50, 15h50, 16h50, 17h50, 18h50, 19h50, 20h50, 21h50, 22h50)
+    # Tương ứng UTC phút :50 (tránh phút :00 nghẽn queue và lệch hoàn toàn với poster phút :25):
+    # UTC: 00:50, 01:50, 02:50, 03:50, 04:50, 05:50, 06:50, 07:50, 08:50, 09:50, 10:50, 11:50, 12:50, 13:50, 14:50, 15:50
+    - cron: '50 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 * * *'
+  workflow_dispatch:
+    inputs:
+      total_groups:
+        description: 'Số lượng nhóm muốn quét trong ca này'
+        required: true
+        default: '10'
+        type: string
+      max_comments_per_group:
+        description: 'Số bình luận tối đa trong mỗi nhóm (để an toàn tài khoản)'
+        required: true
+        default: '2'
+        type: string
+      test_group_url:
+        description: 'URL nhóm test chỉ định (để trống để chạy theo danh sách)'
+        required: false
+        default: ''
+        type: string
+      dry_run:
+        description: 'Chế độ chạy thử (true = Test không gửi thật, false = Bình luận thật)'
+        required: true
+        default: 'false'
+        type: boolean
+
+jobs:
+  comment-to-facebook:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Cache Playwright Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-chromium
+
+      - name: Cache ONNX Model
+        uses: actions/cache@v4
+        with:
+          path: ./models
+          key: onnx-comment-model-v1
+
+      - name: Install dependencies & Playwright
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Download ONNX Model if not cached
+        run: |
+          python -c "
+          import os
+          from huggingface_hub import hf_hub_download
+          model_dir = './models'
+          os.makedirs(model_dir, exist_ok=True)
+          if not os.path.exists('./models/onnx/model_quantized.onnx'):
+              hf_hub_download(repo_id='Xenova/all-MiniLM-L6-v2', filename='onnx/model_quantized.onnx', local_dir=model_dir)
+          if not os.path.exists('./models/tokenizer.json'):
+              hf_hub_download(repo_id='Xenova/all-MiniLM-L6-v2', filename='tokenizer.json', local_dir=model_dir)
+          print('ONNX model ready.')
+          "
+
+      - name: Run Contextual Commenter
+        env:
+          FB_COOKIES_JSON: ${{ secrets.FB_COOKIES_JSON }}
+          FB_USERNAME: ${{ secrets.FB_USERNAME }}
+          FB_PASSWORD: ${{ secrets.FB_PASSWORD }}
+          TEST_GROUP_URL: ${{ github.event.inputs.test_group_url || '' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          TOTAL_GROUPS_LIMIT: ${{ github.event.inputs.total_groups || '10' }}
+          MAX_COMMENTS_PER_GROUP: ${{ github.event.inputs.max_comments_per_group || '2' }}
+        run: |
+          python github_cron_commenter.py
+
+      - name: Upload proof screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: comment-proof-screenshots
+          path: '*.png'
+          if-no-files-found: ignore
+
+      - name: Save commented history
+        if: ${{ always() && (github.event.inputs.dry_run != 'true') }}
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add commented_history.json || true
+          git commit -m "chore: update commented posts history [skip ci]" || echo "No changes to commit"
+          git push || echo "Push failed or no changes"

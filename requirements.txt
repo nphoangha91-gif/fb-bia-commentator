@@ -1,0 +1,5 @@
+playwright>=1.40.0
+onnxruntime>=1.16.0
+numpy>=1.24.0
+huggingface_hub>=0.20.0
+tokenizers>=0.15.0
