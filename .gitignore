@@ -5,6 +5,7 @@ env.txt
 .env*
 
 # Models & Caches
+models
 models/
 __pycache__/
 .DS_Store
@@ -13,3 +14,4 @@ __pycache__/
 *.png
 inspected_top_20_posts.json
 diamond_evaluation_progress.json
+discovered_diamond_progress.json
